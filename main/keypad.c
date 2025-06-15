@@ -28,7 +28,7 @@ const char key_map[4][4] = {
 // Bản đồ phím phụ (chế độ đặc biệt)
 const char secondary_key_map[10] = {
     ' ',    // 0: Space
-    's',    // 1: sin(
+    's',    // 1: sin( (degrees)
     'r',    // 2: root(
     'l',    // 3: ln(
     '(',    // 4: (
@@ -36,7 +36,7 @@ const char secondary_key_map[10] = {
     'p',    // 6: pi
     'e',    // 7: e
     ':',    // 8: Colon
-    'i'     // 9: i (số ảo)
+    'S'     // 9: s_( (radians)
 };
 
 // Hằng số toán học tự định nghĩa
@@ -44,8 +44,9 @@ const char secondary_key_map[10] = {
 #define E 2.71828182845904523536
 
 // Biến toàn cục
-char display_buffer[80] = "";      // Bộ đệm biểu thức (tăng kích thước)
-char result_str[40] = "";          // Bộ đệm kết quả
+char display_buffer[80] = "";      // Bộ đệm biểu thức
+char result_str[40] = "";          // Bộ đệm kết quả chính
+char error_str[40] = "";           // Bộ đệm sai số cho tích phân
 bool showing_result = false;       // Cờ hiển thị kết quả
 char last_key = '\0';              // Phím cuối cùng được nhấn
 char prev_key = '\0';              // Phím trước đó
@@ -53,6 +54,8 @@ bool secondary_mode_active = false;// Cờ đang trong chế độ phụ
 bool tertiary_mode_active = false; // Chế độ bàn phím thứ 3
 int display_offset = 0;            // Vị trí bắt đầu hiển thị
 int cursor_pos = 0;                // Vị trí con trỏ trong chuỗi
+char last_input[80] = "";          // Lưu biểu thức vừa nhập
+char saved_result[40] = "";        // Lưu kết quả vừa tính
 
 // Hàm kiểm tra ký tự số
 int isdigit(char c) {
@@ -107,12 +110,12 @@ char scan_keypad() {
     return '\0';
 }
 
-// Hàm tính giá trị tuyệt đối (không dùng math.h)
+// Hàm tính giá trị tuyệt đối
 double my_fabs(double x) {
     return (x < 0) ? -x : x;
 }
 
-// Hàm tính lũy thừa (không dùng math.h)
+// Hàm tính lũy thừa
 double my_pow(double base, int exponent) {
     if (exponent == 0) return 1.0;
     
@@ -126,7 +129,7 @@ double my_pow(double base, int exponent) {
     return (exponent < 0) ? 1.0 / result : result;
 }
 
-// Hàm tính giai thừa (dùng cho chuỗi Maclaurin)
+// Hàm tính giai thừa
 double factorial(int n) {
     if (n == 0) return 1.0;
     
@@ -137,8 +140,8 @@ double factorial(int n) {
     return result;
 }
 
-// Hàm tính sin sử dụng chuỗi Maclaurin (không dùng math.h)
-double my_sin(double x_deg) {
+// Hàm tính sin sử dụng chuỗi Maclaurin (độ)
+double my_sin_deg(double x_deg) {
     // Chuyển đổi độ sang radian
     double x_rad = x_deg * PI / 180.0;
     
@@ -147,7 +150,7 @@ double my_sin(double x_deg) {
     while (x_rad >= 2 * PI) x_rad -= 2 * PI;
     
     double result = 0.0;
-    int terms = 20; // Số lượng số hạng
+    int terms = 20;
     
     for (int n = 0; n < terms; n++) {
         double term = my_pow(-1, n) * my_pow(x_rad, 2 * n + 1) / factorial(2 * n + 1);
@@ -156,9 +159,25 @@ double my_sin(double x_deg) {
     return result;
 }
 
-// Hàm tính căn bậc 2 sử dụng phương pháp Newton (không dùng math.h)
+// Hàm tính sin sử dụng chuỗi Maclaurin (radian)
+double my_sin_rad(double x_rad) {
+    // Chuẩn hóa góc về khoảng [0, 2π)
+    while (x_rad < 0) x_rad += 2 * PI;
+    while (x_rad >= 2 * PI) x_rad -= 2 * PI;
+    
+    double result = 0.0;
+    int terms = 20;
+    
+    for (int n = 0; n < terms; n++) {
+        double term = my_pow(-1, n) * my_pow(x_rad, 2 * n + 1) / factorial(2 * n + 1);
+        result += term;
+    }
+    return result;
+}
+
+// Hàm tính căn bậc 2
 double my_sqrt(double x) {
-    if (x < 0) return -1; // Lỗi: không xác định cho số âm
+    if (x < 0) return -1;
     if (x == 0) return 0;
     
     double guess = x;
@@ -172,14 +191,13 @@ double my_sqrt(double x) {
     return guess;
 }
 
-// Hàm tính logarit tự nhiên sử dụng chuỗi Maclaurin (không dùng math.h)
+// Hàm tính logarit tự nhiên
 double my_log(double x) {
-    if (x <= 0) return -1; // Lỗi: không xác định
+    if (x <= 0) return -1;
     
-    // Sử dụng khai triển Taylor tại x = 1
     double z = (x - 1) / (x + 1);
     double result = 0.0;
-    int terms = 20; // Số lượng số hạng
+    int terms = 20;
     
     for (int n = 0; n < terms; n++) {
         double term = my_pow(z, 2 * n + 1) / (2 * n + 1);
@@ -189,9 +207,8 @@ double my_log(double x) {
     return 2 * result;
 }
 
-// Hàm đánh giá biểu thức con (hỗ trợ ngoặc đơn) - ĐÃ SỬA
+// Hàm đánh giá biểu thức con
 double evaluate_sub_expression(char* expr) {
-    // Tách các token: số, toán tử
     double tokens[20] = {0};
     char ops[20] = {0};
     int token_count = 0;
@@ -207,7 +224,6 @@ double evaluate_sub_expression(char* expr) {
             continue;
         }
         
-        // Xử lý số âm
         if (*ptr == '-' && (ptr == expr || 
                            *(ptr-1) == '(' || 
                            *(ptr-1) == '+' || 
@@ -225,7 +241,6 @@ double evaluate_sub_expression(char* expr) {
             current_token[token_index] = '\0';
             tokens[token_count++] = atof(current_token);
         }
-        // Xử lý số dương
         else if (isdigit(*ptr) || *ptr == '.') {
             token_index = 0;
             while (isdigit(*ptr) || *ptr == '.' || 
@@ -237,16 +252,13 @@ double evaluate_sub_expression(char* expr) {
             tokens[token_count++] = atof(current_token);
         } 
         else if (*ptr == '+' || *ptr == '-' || *ptr == '*' || *ptr == '/') {
-            // Xử lý toán tử
             ops[op_count++] = *ptr++;
         }
         else {
-            // Bỏ qua ký tự không hợp lệ
             ptr++;
         }
     }
     
-    // Xử lý nhân và chia trước
     for (int i = 0; i < op_count; ) {
         if (ops[i] == '*' || ops[i] == '/') {
             double left = tokens[i];
@@ -257,21 +269,18 @@ double evaluate_sub_expression(char* expr) {
                 calc_result = left * right;
             } else {
                 if (right == 0) {
-                    return 0.0 / 0.0; // NaN: báo lỗi chia cho 0
+                    return 0.0 / 0.0;
                 }
                 calc_result = left / right;
             }
             
-            // Cập nhật mảng
             tokens[i] = calc_result;
             
-            // Dịch chuyển các số còn lại
             for (int j = i+1; j < token_count-1; j++) {
                 tokens[j] = tokens[j+1];
             }
             token_count--;
             
-            // Dịch chuyển các toán tử còn lại
             for (int j = i; j < op_count-1; j++) {
                 ops[j] = ops[j+1];
             }
@@ -281,7 +290,6 @@ double evaluate_sub_expression(char* expr) {
         }
     }
     
-    // Xử lý cộng và trừ
     double final_result = tokens[0];
     for (int i = 0; i < op_count; i++) {
         if (ops[i] == '+') {
@@ -294,49 +302,44 @@ double evaluate_sub_expression(char* expr) {
     return final_result;
 }
 
+// Hàm định dạng kết quả với tối đa 7 chữ số sau dấu chấm
 void format_result(char* result) {
-    // Tìm dấu chấm thập phân
     char* dot = strchr(result, '.');
-    if (dot == NULL) return; // Không có dấu chấm, không cần xử lý
+    if (dot == NULL) return;
     
-    // Tìm vị trí kết thúc của số
     char* end = result + strlen(result) - 1;
     
-    // Loại bỏ các số 0 ở cuối
     while (end > dot && *end == '0') {
         *end = '\0';
         end--;
     }
     
-    // Nếu sau dấu chấm không còn số nào thì bỏ luôn dấu chấm
-    if (*(dot + 1) == '\0') {
-        *dot = '\0';
+    if (*end == '.') {
+        *end = '\0';
     }
 }
 
-// Hàm đánh giá một phần biểu thức đơn lẻ
-char* evaluate_single_expression(const char* expr) {
-    static char result[40] = "";
+// Hàm đánh giá một phần biểu thức đơn lẻ (phiên bản an toàn)
+void evaluate_single_expression_safe(const char* expr, char* result, size_t size) {
     char work_buffer[80];
     strncpy(work_buffer, expr, sizeof(work_buffer));
     work_buffer[sizeof(work_buffer) - 1] = '\0';
 
-    // Xử lý các hằng số: thay thế "pi" và "e" bằng giá trị số
+    // Xử lý hằng số
     char* pi_ptr;
     while ((pi_ptr = strstr(work_buffer, "pi"))) {
         char new_buffer[80] = "";
         int prefix_len = pi_ptr - work_buffer;
         strncat(new_buffer, work_buffer, prefix_len);
         char num_str[20];
-        snprintf(num_str, sizeof(num_str), "%.10f", PI);
+        snprintf(num_str, sizeof(num_str), "%.7f", PI);
         strcat(new_buffer, num_str);
-        strcat(new_buffer, pi_ptr + 2); // +2 để bỏ qua "pi"
+        strcat(new_buffer, pi_ptr + 2);
         strcpy(work_buffer, new_buffer);
     }
     
     char* e_ptr;
     while ((e_ptr = strstr(work_buffer, "e"))) {
-        // Kiểm tra xem 'e' có phải là một phần của số không (vd: 1e3) thì bỏ qua
         if ((e_ptr > work_buffer && (e_ptr[-1] >= '0' && e_ptr[-1] <= '9')) || 
             (e_ptr[1] != '\0' && (e_ptr[1] >= '0' && e_ptr[1] <= '9'))) {
             break;
@@ -345,36 +348,39 @@ char* evaluate_single_expression(const char* expr) {
         int prefix_len = e_ptr - work_buffer;
         strncat(new_buffer, work_buffer, prefix_len);
         char num_str[20];
-        snprintf(num_str, sizeof(num_str), "%.10f", E);
+        snprintf(num_str, sizeof(num_str), "%.7f", E);
         strcat(new_buffer, num_str);
-        strcat(new_buffer, e_ptr + 1); // bỏ qua 'e'
+        strcat(new_buffer, e_ptr + 1);
         strcpy(work_buffer, new_buffer);
     }
 
     // Xử lý các hàm toán học
     char* func_ptr;
     while ((func_ptr = strstr(work_buffer, "sin(")) || 
+           (func_ptr = strstr(work_buffer, "s_(")) || 
            (func_ptr = strstr(work_buffer, "root(")) || 
            (func_ptr = strstr(work_buffer, "ln("))) {
         int func_type;
         int func_len;
         
         if (strncmp(func_ptr, "sin(", 4) == 0) {
-            func_type = 1;
+            func_type = 1; // sin(degrees)
             func_len = 4;
+        } else if (strncmp(func_ptr, "s_(", 3) == 0) {
+            func_type = 4; // sin(radians)
+            func_len = 3;
         } else if (strncmp(func_ptr, "root(", 5) == 0) {
-            func_type = 2;
+            func_type = 2; // sqrt
             func_len = 5;
         } else if (strncmp(func_ptr, "ln(", 3) == 0) {
-            func_type = 3;
+            func_type = 3; // ln
             func_len = 3;
         } else {
             break;
         }
         
-        // Tìm ngoặc đóng tương ứng
         int paren_level = 1;
-        char* start_ptr = func_ptr + func_len - 1; // trỏ tới '('
+        char* start_ptr = func_ptr + func_len - 1;
         char* end_ptr = start_ptr + 1;
         
         while (*end_ptr && paren_level > 0) {
@@ -384,66 +390,62 @@ char* evaluate_single_expression(const char* expr) {
         }
         
         if (paren_level != 0) {
-            // Lỗi: thiếu ngoặc đóng
-            strcpy(result, "Error: Missing )");
-            return result;
+            strcpy(work_buffer, "Error: Missing )");
+            break;
         }
         
-        // Trích xuất biểu thức trong ngoặc
-        int sub_len = (end_ptr - start_ptr - 2); // bỏ qua '(' và ')' 
+        int sub_len = (end_ptr - start_ptr - 2);
         char sub_expr[80];
         strncpy(sub_expr, start_ptr + 1, sub_len);
         sub_expr[sub_len] = '\0';
         
-        // Đánh giá biểu thức con bằng đệ quy
-        char* sub_result = evaluate_single_expression(sub_expr);
+        char sub_result[40];
+        evaluate_single_expression_safe(sub_expr, sub_result, sizeof(sub_result));
+        
         if (strstr(sub_result, "Error") != NULL) {
-            strcpy(result, sub_result);
-            return result;
+            strcpy(work_buffer, sub_result);
+            break;
         }
         double sub_value = atof(sub_result);
         double func_value;
         
         switch (func_type) {
-            case 1: func_value = my_sin(sub_value); break;
+            case 1: func_value = my_sin_deg(sub_value); break;
+            case 4: func_value = my_sin_rad(sub_value); break;
             case 2: 
                 if (sub_value < 0) {
-                    strcpy(result, "Error: Neg sqrt");
-                    return result;
+                    strcpy(work_buffer, "Error: Neg sqrt");
+                    goto end_loop;
                 }
                 func_value = my_sqrt(sub_value); 
                 break;
             case 3: 
                 if (sub_value <= 0) {
-                    strcpy(result, "Error: Inv log");
-                    return result;
+                    strcpy(work_buffer, "Error: Inv log");
+                    goto end_loop;
                 }
                 func_value = my_log(sub_value); 
                 break;
             default: func_value = 0;
         }
         
-        // Tạo chuỗi mới
         char new_buffer[80] = "";
         int prefix_len = func_ptr - work_buffer;
         strncat(new_buffer, work_buffer, prefix_len);
         
         char num_str[20];
-        if (func_value == (int)func_value) {
-            snprintf(num_str, sizeof(num_str), "%d", (int)func_value);
-        } else {
-            snprintf(num_str, sizeof(num_str), "%.10f", func_value);
-        }
+        snprintf(num_str, sizeof(num_str), "%.7f", func_value);
+        format_result(num_str);
         strcat(new_buffer, num_str);
         strcat(new_buffer, end_ptr);
         
         strcpy(work_buffer, new_buffer);
     }
+    end_loop:
 
     // Xử lý các ngoặc đơn
     char* open_ptr;
     while ((open_ptr = strchr(work_buffer, '(')) != NULL) {
-        // Tìm ngoặc đóng tương ứng
         int paren_level = 1;
         char* close_ptr = open_ptr + 1;
         
@@ -454,96 +456,80 @@ char* evaluate_single_expression(const char* expr) {
         }
         
         if (paren_level != 0) {
-            strcpy(result, "Error: Missing )");
-            return result;
+            strcpy(work_buffer, "Error: Missing )");
+            break;
         }
         
-        // Trích xuất biểu thức trong ngoặc
-        int sub_len = (close_ptr - open_ptr - 2); // bỏ qua '(' và ')' 
+        int sub_len = (close_ptr - open_ptr - 2);
         char sub_expr[80];
         strncpy(sub_expr, open_ptr + 1, sub_len);
         sub_expr[sub_len] = '\0';
         
-        // Đánh giá biểu thức con bằng đệ quy
-        char* sub_result = evaluate_single_expression(sub_expr);
+        char sub_result[40];
+        evaluate_single_expression_safe(sub_expr, sub_result, sizeof(sub_result));
+        
         if (strstr(sub_result, "Error") != NULL) {
-            strcpy(result, sub_result);
-            return result;
+            strcpy(work_buffer, sub_result);
+            break;
         }
         double sub_value = atof(sub_result);
         
-        // Kiểm tra NaN (chia cho 0)
         if (sub_value != sub_value) {
-            strcpy(result, "Error: Div/0");
-            return result;
+            strcpy(work_buffer, "Error: Div/0");
+            break;
         }
         
-        // Tạo chuỗi mới
         char new_buffer[80] = "";
         int prefix_len = open_ptr - work_buffer;
         strncat(new_buffer, work_buffer, prefix_len);
         
         char num_str[20];
-        if (sub_value == (int)sub_value) {
-            snprintf(num_str, sizeof(num_str), "%d", (int)sub_value);
-        } else {
-            snprintf(num_str, sizeof(num_str), "%.10f", sub_value);
-        }
+        snprintf(num_str, sizeof(num_str), "%.7f", sub_value);
+        format_result(num_str);
         strcat(new_buffer, num_str);
         strcat(new_buffer, close_ptr);
         
         strcpy(work_buffer, new_buffer);
     }
 
-    // Đánh giá biểu thức cuối cùng (không còn ngoặc)
+    // Đánh giá biểu thức cuối cùng
     double final_value = evaluate_sub_expression(work_buffer);
     
-    // Kiểm tra NaN (chia cho 0)
     if (final_value != final_value) {
-        strcpy(result, "Error: Div/0");
-        return result;
+        strcpy(work_buffer, "Error: Div/0");
+    } else if (strstr(work_buffer, "Error") == NULL) {
+        snprintf(work_buffer, sizeof(work_buffer), "%.7f", final_value);
+        format_result(work_buffer);
     }
     
-    // Định dạng kết quả
-    if (final_value == (int)final_value) {
-        snprintf(result, sizeof(result), "%d", (int)final_value);
-    } else {
-        snprintf(result, sizeof(result), "%.10f", final_value);
-        format_result(result); // Định dạng lại kết quả
-    }
-    
-    return result;
+    strncpy(result, work_buffer, size);
+    result[size-1] = '\0';
 }
 
-// Hàm đánh giá biểu thức (hỗ trợ nhiều phép tính phân cách bằng :)
+// Hàm đánh giá biểu thức
 char* evaluate_expression(const char* expr) {
     static char final_result[80] = "";
     final_result[0] = '\0';
     
-    // Tạo bản sao của biểu thức để xử lý
     char work_expr[80];
     strncpy(work_expr, expr, sizeof(work_expr));
     work_expr[sizeof(work_expr) - 1] = '\0';
     
-    // Con trỏ để tách các phần
     char* part = strtok(work_expr, ":");
     while (part != NULL) {
-        // Đánh giá từng phần biểu thức
-        char* part_result = evaluate_single_expression(part);
+        char part_result[40];
+        evaluate_single_expression_safe(part, part_result, sizeof(part_result));
         
-        // Nếu gặp lỗi, trả về lỗi ngay lập tức
         if (strstr(part_result, "Error") != NULL) {
             strcpy(final_result, part_result);
             return final_result;
         }
         
-        // Thêm kết quả phần này vào kết quả cuối
         if (final_result[0] != '\0') {
             strcat(final_result, ":");
         }
         strcat(final_result, part_result);
         
-        // Lấy phần tiếp theo
         part = strtok(NULL, ":");
     }
     
@@ -555,7 +541,6 @@ void insert_char_at_cursor(char c) {
     size_t len = strlen(display_buffer);
     if (len >= sizeof(display_buffer) - 1) return;
     
-    // Dời các ký tự phía sau để chèn
     if (cursor_pos < len) {
         memmove(&display_buffer[cursor_pos+1], &display_buffer[cursor_pos], len - cursor_pos);
     }
@@ -564,13 +549,149 @@ void insert_char_at_cursor(char c) {
     cursor_pos++;
 }
 
+// Hàm chèn chuỗi tại vị trí con trỏ
+void insert_string_at_cursor(const char* str) {
+    size_t len = strlen(display_buffer);
+    size_t str_len = strlen(str);
+    
+    if (len + str_len >= sizeof(display_buffer)) return;
+    
+    // Dời các ký tự phía sau để chèn
+    if (cursor_pos < len) {
+        memmove(&display_buffer[cursor_pos+str_len], &display_buffer[cursor_pos], len - cursor_pos);
+    }
+    
+    // Chèn chuỗi
+    memcpy(&display_buffer[cursor_pos], str, str_len);
+    display_buffer[len + str_len] = '\0';
+    cursor_pos += str_len;
+}
+
+// Hàm thay thế 'x' bằng giá trị số
+void replace_x(const char* src, double value, char* dest) {
+    char val_str[20];
+    snprintf(val_str, sizeof(val_str), "%.7f", value);
+    format_result(val_str);
+    
+    int j = 0;
+    for (int i = 0; src[i] != '\0' && j < 79; i++) {
+        if (src[i] == 'x') {
+            strcpy(&dest[j], val_str);
+            j += strlen(val_str);
+        } else {
+            dest[j++] = src[i];
+        }
+    }
+    dest[j] = '\0';
+}
+
+// Hàm tính tích phân bằng phương pháp hình thang
+double trapezoidal_integration(char* expr, double a, double b, double h) {
+    int n = (int)((b - a) / h);
+    if (n <= 0) n = 1;
+    
+    double sum = 0.0;
+    char work_expr[80];
+    char result_buf[40];
+
+    // Điểm đầu
+    replace_x(expr, a, work_expr);
+    evaluate_single_expression_safe(work_expr, result_buf, sizeof(result_buf));
+    double fa = atof(result_buf);
+    
+    // Điểm cuối
+    replace_x(expr, b, work_expr);
+    evaluate_single_expression_safe(work_expr, result_buf, sizeof(result_buf));
+    double fb = atof(result_buf);
+    
+    sum = fa + fb;
+
+    // Các điểm ở giữa
+    for (int i = 1; i < n; i++) {
+        double x = a + i * h;
+        replace_x(expr, x, work_expr);
+        evaluate_single_expression_safe(work_expr, result_buf, sizeof(result_buf));
+        double fx = atof(result_buf);
+        sum += 2.0 * fx;
+    }
+
+    return sum * h / 2.0;
+}
+
+// Hàm xử lý biểu thức tích phân
+void handle_integral(char* expr) {
+    // Tìm vị trí dấu ngoặc đơn mở đầu tiên sau '[a,b]'
+    char* open_paren = strchr(expr, '(');
+    if (open_paren == NULL) {
+        strcpy(result_str, "Missing (");
+        error_str[0] = '\0';
+        return;
+    }
+    
+    // Tìm vị trí dấu ngoặc đơn đóng tương ứng
+    int paren_level = 1;
+    char* close_paren = open_paren + 1;
+    while (*close_paren && paren_level > 0) {
+        if (*close_paren == '(') paren_level++;
+        else if (*close_paren == ')') paren_level--;
+        close_paren++;
+    }
+    
+    if (paren_level != 0) {
+        strcpy(result_str, "Missing )");
+        error_str[0] = '\0';
+        return;
+    }
+    
+    // Trích xuất a và b
+    double a, b;
+    if (sscanf(expr, "[%lf,%lf]", &a, &b) != 2) {
+        strcpy(result_str, "Invalid a,b");
+        error_str[0] = '\0';
+        return;
+    }
+    
+    // Trích xuất biểu thức hàm
+    int func_len = (close_paren - open_paren - 1);
+    if (func_len <= 0 || func_len > 59) {
+        strcpy(result_str, "Invalid func");
+        error_str[0] = '\0';
+        return;
+    }
+    
+    char f_expr[60];
+    strncpy(f_expr, open_paren + 1, func_len);
+    f_expr[func_len] = '\0';
+    
+    // Tìm và loại bỏ dấu ngoặc đóng cuối cùng nếu có
+    char* last_paren = strrchr(f_expr, ')');
+    if (last_paren) {
+        *last_paren = '\0';
+    }
+    
+    double h = 0.01;
+    double result = trapezoidal_integration(f_expr, a, b, h);
+    
+    // Tính sai số với h/2
+    double result_half = trapezoidal_integration(f_expr, a, b, h/2);
+    double error = my_fabs(result - result_half);
+    
+    // Định dạng kết quả với tối đa 7 chữ số sau dấu chấm
+    snprintf(result_str, sizeof(result_str), "%.7f", result);
+    format_result(result_str);
+    result_str[sizeof(result_str)-1] = '\0';
+    
+    // Định dạng sai số với định dạng khoa học và tiền tố "R: "
+    snprintf(error_str, sizeof(error_str), "R: %.2e", error);
+    error_str[sizeof(error_str)-1] = '\0';
+}
+
 // Xử lý phím được nhấn
 void handle_key(char key) {
     if (key == '\0') return;
 
     // Kích hoạt chế độ bàn phím thứ 3 khi nhấn '*' hai lần
     if (key == '*' && prev_key == '*') {
-        // Xóa cả hai dấu '*' nếu có
         size_t len = strlen(display_buffer);
         if (len >= 2 && display_buffer[len-1] == '*' && display_buffer[len-2] == '*') {
             display_buffer[len-2] = '\0';
@@ -585,7 +706,6 @@ void handle_key(char key) {
 
     // Xử lý chế độ bàn phím thứ 3
     if (tertiary_mode_active) {
-        // Thoát chế độ 3 khi nhấn '**'
         if (key == '*' && prev_key == '*') {
             tertiary_mode_active = false;
             prev_key = '\0';
@@ -593,7 +713,6 @@ void handle_key(char key) {
             return;
         }
         
-        // Chuyển sang chế độ 2 khi nhấn '..'
         if (key == '.' && prev_key == '.') {
             tertiary_mode_active = false;
             secondary_mode_active = true;
@@ -602,7 +721,6 @@ void handle_key(char key) {
             return;
         }
         
-        // Xử lý các phím điều khiển trong chế độ 3
         switch(key) {
             case '4': // Di chuyển con trỏ sang trái
                 if (cursor_pos > 0) {
@@ -633,9 +751,37 @@ void handle_key(char key) {
                     }
                 }
                 break;
+                
+            case '1': // Phục hồi biểu thức trước đó
+                if (strlen(last_input)) {
+                    strcpy(display_buffer, last_input);
+                    cursor_pos = strlen(display_buffer);
+                    showing_result = false;
+                }
+                break;
+                
+            case '3': // Chèn ký tự ẩn 'x'
+                insert_char_at_cursor('x');
+                break;
+                
+            case '2': // Kích hoạt chế độ tích phân
+                strcat(display_buffer, "[0,0](");
+                cursor_pos = strlen(display_buffer) - 1;
+                break;
+                
+            case '7': // Lưu kết quả vừa tính
+                if (strlen(saved_result)) {
+                    insert_string_at_cursor(saved_result);
+                }
+                break;
+                
+            case '8': // Chèn sai số tích phân
+                if (strlen(error_str)) {
+                    insert_string_at_cursor(error_str);
+                }
+                break;
         }
         
-        // Cập nhật prev_key và last_key cho tất cả các phím
         prev_key = last_key;
         last_key = key;
         return;
@@ -650,10 +796,17 @@ void handle_key(char key) {
             size_t len = strlen(display_buffer);
             
             switch (special_char) {
-                case 's': // sin(
+                case 's': // sin( (degrees)
                     if (len + 5 < sizeof(display_buffer)) {
                         strcat(display_buffer, "sin(");
                         cursor_pos = len + 4;
+                    }
+                    break;
+                    
+                case 'S': // s_( (radians)
+                    if (len + 4 < sizeof(display_buffer)) {
+                        strcat(display_buffer, "s_(");
+                        cursor_pos = len + 3;
                     }
                     break;
                     
@@ -664,7 +817,7 @@ void handle_key(char key) {
                     }
                     break;
                     
-                case 'l': // log(
+                case 'l': // ln(
                     if (len + 4 < sizeof(display_buffer)) {
                         strcat(display_buffer, "ln(");
                         cursor_pos = len + 3;
@@ -672,7 +825,7 @@ void handle_key(char key) {
                     break;
                     
                 case 'p': // pi
-                    if (len + 20 < sizeof(display_buffer)) { // đủ chỗ cho giá trị PI
+                    if (len + 20 < sizeof(display_buffer)) {
                         strcat(display_buffer, "pi");
                         cursor_pos = len + 2;
                     }
@@ -695,7 +848,6 @@ void handle_key(char key) {
             }
         }
         
-        // Tắt chế độ phụ sau khi xử lý
         secondary_mode_active = false;
         prev_key = last_key;
         last_key = key;
@@ -704,7 +856,6 @@ void handle_key(char key) {
 
     // Kích hoạt chế độ bàn phím phụ khi nhấn '.' hai lần
     if (key == '.' && prev_key == '.') {
-        // Xóa dấu '.' thứ hai
         size_t len = strlen(display_buffer);
         if (len > 0 && display_buffer[len-1] == '.') {
             display_buffer[len-1] = '\0';
@@ -720,6 +871,7 @@ void handle_key(char key) {
     if (key == '/' && prev_key == '/') {
         display_buffer[0] = '\0';
         result_str[0] = '\0';
+        error_str[0] = '\0';
         showing_result = false;
         last_key = '\0';
         prev_key = '\0';
@@ -731,7 +883,7 @@ void handle_key(char key) {
         return;
     }
 
-    // Xử lý dấu thập phân (không tự động thêm '0')
+    // Xử lý dấu thập phân
     if (key == '.') {
         if (showing_result) {
             strcpy(display_buffer, ".");
@@ -739,31 +891,24 @@ void handle_key(char key) {
             cursor_pos = 1;
         } else {
             size_t len = strlen(display_buffer);
-            
-            // Kiểm tra xem có thể thêm dấu thập phân không
             bool can_add = true;
-            // Duyệt ngược từ cuối chuỗi để tìm số gần nhất
             int i;
             for (i = len - 1; i >= 0; i--) {
                 if (display_buffer[i] == '.') {
-                    can_add = false; // đã có dấu chấm trong số hiện tại
+                    can_add = false;
                     break;
                 } else if (display_buffer[i] < '0' || display_buffer[i] > '9') {
-                    // Gặp toán tử, có thể thêm dấu chấm
                     break;
                 }
             }
-            // Chỉ thêm . nếu chưa có
             if (can_add) {
                 if (cursor_pos == len) {
-                    // Thêm vào cuối
                     if (len < sizeof(display_buffer) - 1) {
                         display_buffer[len] = '.';
                         display_buffer[len + 1] = '\0';
                         cursor_pos++;
                     }
                 } else {
-                    // Chèn tại vị trí con trỏ
                     insert_char_at_cursor('.');
                 }
             }
@@ -772,21 +917,44 @@ void handle_key(char key) {
         last_key = key;
         return;
     }
-
     if (key == '=') {
-        if (strlen(display_buffer) > 0) {
-            char* result = evaluate_expression(display_buffer);
-            strncpy(result_str, result, sizeof(result_str));
-            result_str[sizeof(result_str) - 1] = '\0';
-            showing_result = true;
-            cursor_pos = strlen(display_buffer); // Di chuyển con trỏ về cuối
-            printf("Result: %s\n", result_str);
+        if (strlen(display_buffer)) {
+            strncpy(last_input, display_buffer, sizeof(last_input));
+            last_input[sizeof(last_input) - 1] = '\0';
+            
+            if (display_buffer[0] == '[') {
+                // Kiểm tra xem có biểu thức nào khác ngoài tích phân không
+                if (strstr(display_buffer, ":") || strlen(display_buffer) > 0) {
+                    handle_integral(display_buffer);
+                } else {
+                    strcpy(result_str, "Only integral");
+                }
+                
+                // Lưu kết quả thành công
+                if (strstr(result_str, "Error") == NULL && strstr(result_str, "Invalid") == NULL) {
+                    strcpy(saved_result, result_str);
+                }
+                
+                showing_result = true;
+                cursor_pos = strlen(display_buffer);
+            } else {
+                char* result = evaluate_expression(display_buffer);
+                strncpy(result_str, result, sizeof(result_str));
+                result_str[sizeof(result_str) - 1] = '\0';
+                error_str[0] = '\0';
+                showing_result = true;
+                cursor_pos = strlen(display_buffer);
+                
+                // Lưu kết quả thành công
+                if (strstr(result_str, "Error") == NULL) {
+                    strcpy(saved_result, result_str);
+                }
+            }
         }
         prev_key = last_key;
         last_key = key;
         return;
     }
-
     // Xử lý số
     if (key >= '0' && key <= '9') {
         if (showing_result) {
@@ -796,7 +964,6 @@ void handle_key(char key) {
             cursor_pos = 1;
         } else {
             if (cursor_pos == strlen(display_buffer)) {
-                // Thêm vào cuối
                 size_t len = strlen(display_buffer);
                 if (len < sizeof(display_buffer) - 1) {
                     display_buffer[len] = key;
@@ -804,25 +971,21 @@ void handle_key(char key) {
                     cursor_pos++;
                 }
             } else {
-                // Chèn tại vị trí con trỏ
                 insert_char_at_cursor(key);
             }
         }
         prev_key = last_key;
         last_key = key;
         return;
-    }
-    
-    // Xử lý toán tử (bao gồm số âm)
+    }   
+    // Xử lý toán tử
     if (key == '+' || key == '-' || key == '*' || key == '/') {
         if (showing_result) {
             strcpy(display_buffer, result_str);
             cursor_pos = strlen(display_buffer);
             showing_result = false;
-        }
-        
+        }       
         if (cursor_pos == strlen(display_buffer)) {
-            // Thêm vào cuối
             size_t len = strlen(display_buffer);
             if (len < sizeof(display_buffer) - 1) {
                 display_buffer[len] = key;
@@ -830,15 +993,13 @@ void handle_key(char key) {
                 cursor_pos++;
             }
         } else {
-            // Chèn tại vị trí con trỏ
             insert_char_at_cursor(key);
         }
         
         prev_key = last_key;
         last_key = key;
         return;
-    }
-    
+    }   
     // Xử lý ngoặc đơn
     if (key == '(' || key == ')') {
         if (showing_result) {
@@ -848,7 +1009,6 @@ void handle_key(char key) {
             cursor_pos = 1;
         } else {
             if (cursor_pos == strlen(display_buffer)) {
-                // Thêm vào cuối
                 size_t len = strlen(display_buffer);
                 if (len < sizeof(display_buffer) - 1) {
                     display_buffer[len] = key;
@@ -856,7 +1016,6 @@ void handle_key(char key) {
                     cursor_pos++;
                 }
             } else {
-                // Chèn tại vị trí con trỏ
                 insert_char_at_cursor(key);
             }
         }
@@ -865,7 +1024,6 @@ void handle_key(char key) {
         return;
     }
 }
-
 void app_main() {
     init_keypad();
     printf("Advanced Calculator Ready!\n");
@@ -879,14 +1037,12 @@ void app_main() {
             handle_key(key);
             printf("Expression: %s\n", display_buffer);
             
-            // Cập nhật LCD - cắt chuỗi để hiển thị
+            // Cập nhật LCD
             lcd_clear();
-            char lcd_line[17]; // 16 ký tự + null
+            char lcd_line[17];
             
-            // Tính toán vị trí hiển thị
             int len = strlen(display_buffer);
             if (len > 16) {
-                // Đảm bảo con trỏ luôn hiển thị
                 if (cursor_pos < display_offset) {
                     display_offset = cursor_pos;
                 } else if (cursor_pos >= display_offset + 16) {
@@ -896,15 +1052,14 @@ void app_main() {
                 strncpy(lcd_line, display_buffer + display_offset, 16);
             } else {
                 strncpy(lcd_line, display_buffer, 16);
-                display_offset = 0; // Reset offset nếu chuỗi ngắn
+                display_offset = 0;
             }
             lcd_line[16] = '\0';
             lcd_put_cur(0, 0);
             lcd_send_string(lcd_line);
             
-            // Dòng 2: kết quả hoặc chế độ hoặc con trỏ
+            // Dòng 2
             if (tertiary_mode_active) {
-                // Hiển thị vị trí con trỏ
                 char cursor_line[17] = "                ";
                 int cursor_screen_pos = cursor_pos - display_offset;
                 if (cursor_screen_pos >= 0 && cursor_screen_pos < 16) {
@@ -916,12 +1071,25 @@ void app_main() {
                 lcd_put_cur(1, 0);
                 lcd_send_string("Secondary Mode");
             } else if (showing_result) {
-                strncpy(lcd_line, result_str, 16);
-                lcd_line[16] = '\0';
-                lcd_put_cur(1, 0);
-                lcd_send_string(lcd_line);
+                // Hiển thị kết quả tích phân
+                if (display_buffer[0] == '[' && strlen(error_str) > 0) {
+                    // Dòng 1: kết quả chính
+                    strncpy(lcd_line, result_str, 16);
+                    lcd_line[16] = '\0';
+                    lcd_clear();
+                    lcd_put_cur(0, 0);
+                    lcd_send_string(lcd_line);
+                    // Dòng 2: sai số
+                    lcd_put_cur(1, 0); 
+                    lcd_send_string(error_str);
+                } else {
+                    // Hiển thị kết quả thông thường
+                    strncpy(lcd_line, result_str, 16);
+                    lcd_line[16] = '\0';
+                    lcd_put_cur(1, 0);
+                    lcd_send_string(lcd_line);
+                }
             } else {
-                // Hiển thị vị trí con trỏ ở chế độ thường
                 char cursor_line[17] = "                ";
                 int cursor_screen_pos = cursor_pos - display_offset;
                 if (cursor_screen_pos >= 0 && cursor_screen_pos < 16) {
@@ -929,6 +1097,13 @@ void app_main() {
                 }
                 lcd_put_cur(1, 0);
                 lcd_send_string(cursor_line);
+            }
+            // In kết quả ra console
+            if (showing_result) {
+                printf("Result: %s\n", result_str);
+                if (display_buffer[0] == '[') {
+                    printf("Error Estimate: %s\n", error_str);
+                }
             }
         }
         vTaskDelay(pdMS_TO_TICKS(100));
