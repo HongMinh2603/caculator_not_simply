@@ -682,7 +682,7 @@ void handle_integral(char* expr) {
     result_str[sizeof(result_str)-1] = '\0';
     
     // Định dạng sai số với định dạng khoa học và tiền tố "R: "
-    snprintf(error_str, sizeof(error_str), "R: %.2e", error);
+    snprintf(error_str, sizeof(error_str), "R:%.4e", error);
     error_str[sizeof(error_str)-1] = '\0';
 }
 
@@ -777,7 +777,8 @@ void handle_key(char key) {
                 
             case '8': // Chèn sai số tích phân
                 if (strlen(error_str)) {
-                    insert_string_at_cursor(error_str);
+                    char *newError = error_str +2; // Bỏ qua "R:"
+                    insert_string_at_cursor(newError);
                 }
                 break;
         }
@@ -917,6 +918,7 @@ void handle_key(char key) {
         last_key = key;
         return;
     }
+
     if (key == '=') {
         if (strlen(display_buffer)) {
             strncpy(last_input, display_buffer, sizeof(last_input));
@@ -955,6 +957,7 @@ void handle_key(char key) {
         last_key = key;
         return;
     }
+
     // Xử lý số
     if (key >= '0' && key <= '9') {
         if (showing_result) {
@@ -977,14 +980,16 @@ void handle_key(char key) {
         prev_key = last_key;
         last_key = key;
         return;
-    }   
+    }
+    
     // Xử lý toán tử
     if (key == '+' || key == '-' || key == '*' || key == '/') {
         if (showing_result) {
             strcpy(display_buffer, result_str);
             cursor_pos = strlen(display_buffer);
             showing_result = false;
-        }       
+        }
+        
         if (cursor_pos == strlen(display_buffer)) {
             size_t len = strlen(display_buffer);
             if (len < sizeof(display_buffer) - 1) {
@@ -999,7 +1004,8 @@ void handle_key(char key) {
         prev_key = last_key;
         last_key = key;
         return;
-    }   
+    }
+    
     // Xử lý ngoặc đơn
     if (key == '(' || key == ')') {
         if (showing_result) {
@@ -1024,6 +1030,7 @@ void handle_key(char key) {
         return;
     }
 }
+
 void app_main() {
     init_keypad();
     printf("Advanced Calculator Ready!\n");
@@ -1073,6 +1080,7 @@ void app_main() {
             } else if (showing_result) {
                 // Hiển thị kết quả tích phân
                 if (display_buffer[0] == '[' && strlen(error_str) > 0) {
+                    
                     // Dòng 1: kết quả chính
                     strncpy(lcd_line, result_str, 16);
                     lcd_line[16] = '\0';
@@ -1098,6 +1106,7 @@ void app_main() {
                 lcd_put_cur(1, 0);
                 lcd_send_string(cursor_line);
             }
+            
             // In kết quả ra console
             if (showing_result) {
                 printf("Result: %s\n", result_str);
