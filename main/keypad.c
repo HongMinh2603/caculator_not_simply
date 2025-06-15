@@ -25,9 +25,9 @@ const char key_map[4][4] = {
     {'.', '0', '=', '/'}
 };
 
-// Bản đồ phím phụ (chế độ đặc biệt)
+// Bản đồ phím phụ (chế độ đặc biệt) - ĐÃ CẬP NHẬT: Thêm '^' ở index 0
 const char secondary_key_map[10] = {
-    ' ',    // 0: Space
+    '^',    // 0: Lũy thừa (thay space)
     's',    // 1: sin( (degrees)
     'r',    // 2: root(
     'l',    // 3: ln(
@@ -115,18 +115,50 @@ double my_fabs(double x) {
     return (x < 0) ? -x : x;
 }
 
-// Hàm tính lũy thừa
-double my_pow(double base, int exponent) {
+// Hàm tính lũy thừa - ĐÃ CẬP NHẬT: Hỗ trợ số mũ thập phân
+double my_pow(double base, double exponent) {
+    // Xử lý trường hợp đặc biệt
+    if (base == 0 && exponent > 0) return 0;
+    if (base == 0 && exponent <= 0) return 0.0/0.0; // NaN
     if (exponent == 0) return 1.0;
     
-    double result = 1.0;
-    int abs_exp = (exponent < 0) ? -exponent : exponent;
-    
-    for (int i = 0; i < abs_exp; i++) {
-        result *= base;
+    // Kiểm tra số mũ nguyên
+    int int_exp = (int)exponent;
+    if (int_exp == exponent) {
+        // Số mũ nguyên
+        double result = 1.0;
+        int abs_exp = (int_exp < 0) ? -int_exp : int_exp;
+        
+        for (int i = 0; i < abs_exp; i++) {
+            result *= base;
+        }
+        
+        return (int_exp < 0) ? 1.0 / result : result;
     }
     
-    return (exponent < 0) ? 1.0 / result : result;
+    // Số mũ thực: sử dụng exp(exponent * ln(base))
+    // Tính ln(base)
+    double z = (base - 1) / (base + 1);
+    double ln_base = 0.0;
+    int terms = 20;
+    for (int n = 0; n < terms; n++) {
+        double term = my_pow(z, 2 * n + 1) / (2 * n + 1);
+        ln_base += term;
+    }
+    ln_base *= 2;
+    
+    // Tính exponent * ln(base)
+    double product = exponent * ln_base;
+    
+    // Tính exp(product) bằng chuỗi Taylor
+    double exp_result = 1.0;
+    double term = 1.0;
+    for (int n = 1; n < 20; n++) {
+        term *= product / n;
+        exp_result += term;
+    }
+    
+    return exp_result;
 }
 
 // Hàm tính giai thừa
@@ -207,7 +239,7 @@ double my_log(double x) {
     return 2 * result;
 }
 
-// Hàm đánh giá biểu thức con
+// Hàm đánh giá biểu thức con - ĐÃ CẬP NHẬT: Thêm xử lý toán tử '^'
 double evaluate_sub_expression(char* expr) {
     double tokens[20] = {0};
     char ops[20] = {0};
@@ -229,7 +261,8 @@ double evaluate_sub_expression(char* expr) {
                            *(ptr-1) == '+' || 
                            *(ptr-1) == '-' || 
                            *(ptr-1) == '*' || 
-                           *(ptr-1) == '/')) {
+                           *(ptr-1) == '/' ||
+                           *(ptr-1) == '^')) {
             token_index = 0;
             current_token[token_index++] = *ptr++;
             
@@ -251,7 +284,7 @@ double evaluate_sub_expression(char* expr) {
             current_token[token_index] = '\0';
             tokens[token_count++] = atof(current_token);
         } 
-        else if (*ptr == '+' || *ptr == '-' || *ptr == '*' || *ptr == '/') {
+        else if (*ptr == '+' || *ptr == '-' || *ptr == '*' || *ptr == '/' || *ptr == '^') {
             ops[op_count++] = *ptr++;
         }
         else {
@@ -259,6 +292,28 @@ double evaluate_sub_expression(char* expr) {
         }
     }
     
+    // Xử lý toán tử lũy thừa (phải sang trái)
+    for (int i = op_count - 1; i >= 0; i--) {
+        if (ops[i] == '^') {
+            double left = tokens[i];
+            double right = tokens[i+1];
+            double calc_result = my_pow(left, right);
+            
+            tokens[i] = calc_result;
+            
+            for (int j = i+1; j < token_count-1; j++) {
+                tokens[j] = tokens[j+1];
+            }
+            token_count--;
+            
+            for (int j = i; j < op_count-1; j++) {
+                ops[j] = ops[j+1];
+            }
+            op_count--;
+        }
+    }
+    
+    // Xử lý nhân và chia
     for (int i = 0; i < op_count; ) {
         if (ops[i] == '*' || ops[i] == '/') {
             double left = tokens[i];
@@ -269,7 +324,7 @@ double evaluate_sub_expression(char* expr) {
                 calc_result = left * right;
             } else {
                 if (right == 0) {
-                    return 0.0 / 0.0;
+                    return 0.0 / 0.0; // NaN
                 }
                 calc_result = left / right;
             }
@@ -290,6 +345,7 @@ double evaluate_sub_expression(char* expr) {
         }
     }
     
+    // Xử lý cộng và trừ
     double final_result = tokens[0];
     for (int i = 0; i < op_count; i++) {
         if (ops[i] == '+') {
@@ -618,10 +674,52 @@ double trapezoidal_integration(char* expr, double a, double b, double h) {
     return sum * h / 2.0;
 }
 
-// Hàm xử lý biểu thức tích phân
+// Hàm xử lý biểu thức tích phân - ĐÃ SỬA LỖI: Xử lý khoảng [a,b] với biểu thức
 void handle_integral(char* expr) {
-    // Tìm vị trí dấu ngoặc đơn mở đầu tiên sau '[a,b]'
-    char* open_paren = strchr(expr, '(');
+    // Tìm vị trí dấu ngoặc vuông
+    char* open_bracket = strchr(expr, '[');
+    char* close_bracket = strchr(expr, ']');
+    if (!open_bracket || !close_bracket) {
+        strcpy(result_str, "Invalid [a,b]");
+        error_str[0] = '\0';
+        return;
+    }
+
+    // Trích xuất phần trong [a,b]
+    char range[40];
+    strncpy(range, open_bracket + 1, close_bracket - open_bracket - 1);
+    range[close_bracket - open_bracket - 1] = '\0';
+
+    // Tìm dấu phẩy phân tách a và b
+    char* comma = strchr(range, ',');
+    if (!comma) {
+        strcpy(result_str, "Missing comma");
+        error_str[0] = '\0';
+        return;
+    }
+
+    // Tách a và b
+    char a_str[20], b_str[20];
+    strncpy(a_str, range, comma - range);
+    a_str[comma - range] = '\0';
+    strcpy(b_str, comma + 1);
+
+    // Đánh giá a và b
+    char a_eval[40], b_eval[40];
+    evaluate_single_expression_safe(a_str, a_eval, sizeof(a_eval));
+    evaluate_single_expression_safe(b_str, b_eval, sizeof(b_eval));
+
+    if (strstr(a_eval, "Error") || strstr(b_eval, "Error")) {
+        strcpy(result_str, "Invalid a/b expr");
+        error_str[0] = '\0';
+        return;
+    }
+
+    double a = atof(a_eval);
+    double b = atof(b_eval);
+
+    // Tìm vị trí dấu ngoặc đơn mở sau ']'
+    char* open_paren = strchr(close_bracket, '(');
     if (open_paren == NULL) {
         strcpy(result_str, "Missing (");
         error_str[0] = '\0';
@@ -639,14 +737,6 @@ void handle_integral(char* expr) {
     
     if (paren_level != 0) {
         strcpy(result_str, "Missing )");
-        error_str[0] = '\0';
-        return;
-    }
-    
-    // Trích xuất a và b
-    double a, b;
-    if (sscanf(expr, "[%lf,%lf]", &a, &b) != 2) {
-        strcpy(result_str, "Invalid a,b");
         error_str[0] = '\0';
         return;
     }
@@ -669,24 +759,24 @@ void handle_integral(char* expr) {
         *last_paren = '\0';
     }
     
-    double h = 0.01;
+    double h = 0.001;
     double result = trapezoidal_integration(f_expr, a, b, h);
     
     // Tính sai số với h/2
     double result_half = trapezoidal_integration(f_expr, a, b, h/2);
     double error = my_fabs(result - result_half);
     
-    // Định dạng kết quả với tối đa 7 chữ số sau dấu chấm
+    // Định dạng kết quả
     snprintf(result_str, sizeof(result_str), "%.7f", result);
     format_result(result_str);
     result_str[sizeof(result_str)-1] = '\0';
     
-    // Định dạng sai số với định dạng khoa học và tiền tố "R: "
+    // Định dạng sai số
     snprintf(error_str, sizeof(error_str), "R:%.4e", error);
     error_str[sizeof(error_str)-1] = '\0';
 }
 
-// Xử lý phím được nhấn
+// Xử lý phím được nhấn - ĐÃ SỬA LỖI: Chèn hàm đúng vị trí trong mode 2
 void handle_key(char key) {
     if (key == '\0') return;
 
@@ -765,7 +855,7 @@ void handle_key(char key) {
                 break;
                 
             case '2': // Kích hoạt chế độ tích phân
-                strcat(display_buffer, "[0,0](");
+                insert_string_at_cursor("[0,0](");
                 cursor_pos = strlen(display_buffer) - 1;
                 break;
                 
@@ -788,64 +878,21 @@ void handle_key(char key) {
         return;
     }
     
-    // Xử lý chế độ bàn phím phụ
+    // Xử lý chế độ bàn phím phụ - ĐÃ SỬA LỖI: Sử dụng insert_string_at_cursor
     if (secondary_mode_active) {
         if (key >= '0' && key <= '9') {
             int index = key - '0';
             char special_char = secondary_key_map[index];
             
-            size_t len = strlen(display_buffer);
-            
             switch (special_char) {
-                case 's': // sin( (degrees)
-                    if (len + 5 < sizeof(display_buffer)) {
-                        strcat(display_buffer, "sin(");
-                        cursor_pos = len + 4;
-                    }
-                    break;
-                    
-                case 'S': // s_( (radians)
-                    if (len + 4 < sizeof(display_buffer)) {
-                        strcat(display_buffer, "s_(");
-                        cursor_pos = len + 3;
-                    }
-                    break;
-                    
-                case 'r': // root(
-                    if (len + 6 < sizeof(display_buffer)) {
-                        strcat(display_buffer, "root(");
-                        cursor_pos = len + 5;
-                    }
-                    break;
-                    
-                case 'l': // ln(
-                    if (len + 4 < sizeof(display_buffer)) {
-                        strcat(display_buffer, "ln(");
-                        cursor_pos = len + 3;
-                    }
-                    break;
-                    
-                case 'p': // pi
-                    if (len + 20 < sizeof(display_buffer)) {
-                        strcat(display_buffer, "pi");
-                        cursor_pos = len + 2;
-                    }
-                    break;
-                    
-                case 'e': // e
-                    if (len + 20 < sizeof(display_buffer)) {
-                        strcat(display_buffer, "e");
-                        cursor_pos = len + 1;
-                    }
-                    break;
-                    
-                default:
-                    if (len < sizeof(display_buffer) - 1) {
-                        display_buffer[len] = special_char;
-                        display_buffer[len + 1] = '\0';
-                        cursor_pos = len + 1;
-                    }
-                    break;
+                case 's': insert_string_at_cursor("sin("); break;
+                case 'S': insert_string_at_cursor("s_("); break;
+                case 'r': insert_string_at_cursor("root("); break;
+                case 'l': insert_string_at_cursor("ln("); break;
+                case 'p': insert_string_at_cursor("pi"); break;
+                case 'e': insert_string_at_cursor("e"); break;
+                case '^': insert_char_at_cursor('^'); break;
+                default: insert_char_at_cursor(special_char); break;
             }
         }
         
@@ -925,12 +972,7 @@ void handle_key(char key) {
             last_input[sizeof(last_input) - 1] = '\0';
             
             if (display_buffer[0] == '[') {
-                // Kiểm tra xem có biểu thức nào khác ngoài tích phân không
-                if (strstr(display_buffer, ":") || strlen(display_buffer) > 0) {
-                    handle_integral(display_buffer);
-                } else {
-                    strcpy(result_str, "Only integral");
-                }
+                handle_integral(display_buffer);
                 
                 // Lưu kết quả thành công
                 if (strstr(result_str, "Error") == NULL && strstr(result_str, "Invalid") == NULL) {
