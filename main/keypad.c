@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include <stdbool.h>
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -47,11 +46,11 @@ const char secondary_key_map[10] = {
 char display_buffer[80] = "";      // Bộ đệm biểu thức
 char result_str[40] = "";          // Bộ đệm kết quả chính
 char error_str[40] = "";           // Bộ đệm sai số cho tích phân
-bool showing_result = false;       // Cờ hiển thị kết quả
+int showing_result = 0;            // Cờ hiển thị kết quả (1 = true, 0 = false)
 char last_key = '\0';              // Phím cuối cùng được nhấn
 char prev_key = '\0';              // Phím trước đó
-bool secondary_mode_active = false;// Cờ đang trong chế độ phụ
-bool tertiary_mode_active = false; // Chế độ bàn phím thứ 3
+int secondary_mode_active = 0;     // Cờ đang trong chế độ phụ (1 = true, 0 = false)
+int tertiary_mode_active = 0;      // Chế độ bàn phím thứ 3 (1 = true, 0 = false)
 int display_offset = 0;            // Vị trí bắt đầu hiển thị
 int cursor_pos = 0;                // Vị trí con trỏ trong chuỗi
 char last_input[80] = "";          // Lưu biểu thức vừa nhập
@@ -759,7 +758,7 @@ void handle_integral(char* expr) {
         *last_paren = '\0';
     }
     
-    double h = 0.001;
+        double h = 0.001;
     double result = trapezoidal_integration(f_expr, a, b, h);
     
     // Tính sai số với h/2
@@ -787,8 +786,8 @@ void handle_key(char key) {
             display_buffer[len-2] = '\0';
             cursor_pos = len - 2;
         }
-        tertiary_mode_active = true;
-        secondary_mode_active = false;
+        tertiary_mode_active = 1;  // true -> 1
+        secondary_mode_active = 0; // false -> 0
         prev_key = '\0';
         last_key = '\0';
         return;
@@ -797,15 +796,15 @@ void handle_key(char key) {
     // Xử lý chế độ bàn phím thứ 3
     if (tertiary_mode_active) {
         if (key == '*' && prev_key == '*') {
-            tertiary_mode_active = false;
+            tertiary_mode_active = 0; // false
             prev_key = '\0';
             last_key = '\0';
             return;
         }
         
         if (key == '.' && prev_key == '.') {
-            tertiary_mode_active = false;
-            secondary_mode_active = true;
+            tertiary_mode_active = 0; // false
+            secondary_mode_active = 1; // true
             prev_key = '\0';
             last_key = '\0';
             return;
@@ -846,7 +845,7 @@ void handle_key(char key) {
                 if (strlen(last_input)) {
                     strcpy(display_buffer, last_input);
                     cursor_pos = strlen(display_buffer);
-                    showing_result = false;
+                    showing_result = 0; // false
                 }
                 break;
                 
@@ -896,7 +895,7 @@ void handle_key(char key) {
             }
         }
         
-        secondary_mode_active = false;
+        secondary_mode_active = 0; // false
         prev_key = last_key;
         last_key = key;
         return;
@@ -909,7 +908,7 @@ void handle_key(char key) {
             display_buffer[len-1] = '\0';
             cursor_pos = len - 1;
         }
-        secondary_mode_active = true;
+        secondary_mode_active = 1; // true
         prev_key = '\0';
         last_key = '\0';
         return;
@@ -920,11 +919,11 @@ void handle_key(char key) {
         display_buffer[0] = '\0';
         result_str[0] = '\0';
         error_str[0] = '\0';
-        showing_result = false;
+        showing_result = 0; // false
         last_key = '\0';
         prev_key = '\0';
-        secondary_mode_active = false;
-        tertiary_mode_active = false;
+        secondary_mode_active = 0; // false
+        tertiary_mode_active = 0; // false
         cursor_pos = 0;
         display_offset = 0;
         printf("Cleared\n");
@@ -935,15 +934,15 @@ void handle_key(char key) {
     if (key == '.') {
         if (showing_result) {
             strcpy(display_buffer, ".");
-            showing_result = false;
+            showing_result = 0; // false
             cursor_pos = 1;
         } else {
             size_t len = strlen(display_buffer);
-            bool can_add = true;
+            int can_add = 1; // true
             int i;
             for (i = len - 1; i >= 0; i--) {
                 if (display_buffer[i] == '.') {
-                    can_add = false;
+                    can_add = 0; // false
                     break;
                 } else if (display_buffer[i] < '0' || display_buffer[i] > '9') {
                     break;
@@ -979,14 +978,14 @@ void handle_key(char key) {
                     strcpy(saved_result, result_str);
                 }
                 
-                showing_result = true;
+                showing_result = 1; // true
                 cursor_pos = strlen(display_buffer);
             } else {
                 char* result = evaluate_expression(display_buffer);
                 strncpy(result_str, result, sizeof(result_str));
                 result_str[sizeof(result_str) - 1] = '\0';
                 error_str[0] = '\0';
-                showing_result = true;
+                showing_result = 1; // true
                 cursor_pos = strlen(display_buffer);
                 
                 // Lưu kết quả thành công
@@ -1005,7 +1004,7 @@ void handle_key(char key) {
         if (showing_result) {
             display_buffer[0] = key;
             display_buffer[1] = '\0';
-            showing_result = false;
+            showing_result = 0; // false
             cursor_pos = 1;
         } else {
             if (cursor_pos == strlen(display_buffer)) {
@@ -1029,7 +1028,7 @@ void handle_key(char key) {
         if (showing_result) {
             strcpy(display_buffer, result_str);
             cursor_pos = strlen(display_buffer);
-            showing_result = false;
+            showing_result = 0; // false
         }
         
         if (cursor_pos == strlen(display_buffer)) {
@@ -1053,7 +1052,7 @@ void handle_key(char key) {
         if (showing_result) {
             display_buffer[0] = key;
             display_buffer[1] = '\0';
-            showing_result = false;
+            showing_result = 0; // false
             cursor_pos = 1;
         } else {
             if (cursor_pos == strlen(display_buffer)) {

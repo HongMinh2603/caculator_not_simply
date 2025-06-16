@@ -3,8 +3,8 @@
 #include <unistd.h>
 
 #define SLAVE_ADDRESS_LCD 0x4E>>1 // I2C address of LCD (shifted right by 1)
-#define I2C_SCL_PIN 22    // SCL pin (modify as needed)
-#define I2C_SDA_PIN 21    // SDA pin (modify as needed)
+#define I2C_SCL_PIN 19    // SCL pin (modify as needed)
+#define I2C_SDA_PIN 18    // SDA pin (modify as needed)
 #define I2C_DELAY_US 5    // Delay for 100 kHz I2C clock (5us half-cycle)
 
 static const char *TAG = "LCD";
